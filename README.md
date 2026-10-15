@@ -1,3 +1,5 @@
+> **Nuovo:** il tool FSM per i piani alimentari è nella cartella [`fsm-alimentazione/`](fsm-alimentazione/README.md).
+
 # GDN · Tool programmi di allenamento
 
 Strumento web (un solo file: `netlify/index.html`) per creare i programmi di allenamento delle clienti

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FSM Piani Alimentari</title>
+<link rel="stylesheet" href="style.css">
+<!-- Librerie da CDN con versione fissa; se il CDN non risponde si usa la copia locale in lib/ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>window.JSZip || document.write('<script src="lib/jszip.min.js"><\/script>')</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>window.XLSX || document.write('<script src="lib/xlsx.full.min.js"><\/script>')</script>
+<script src="engine.js"></script>
+<script src="docgen.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">FSM</span> Piani alimentari</div>
+  <nav>
+    <button data-view="client" class="nav on">Nuovo piano</button>
+    <button data-view="archive" class="nav">Archivio clienti</button>
+    <button data-view="settings" class="nav">Impostazioni</button>
+    <button id="btnDb" class="nav">Aggiorna database</button>
+  </nav>
+</header>
+<input type="file" id="fileDb" accept=".xlsx" hidden>
+<input type="file" id="fileTpl" accept=".docx" hidden>
+<input type="file" id="fileImport" accept=".json,application/json" hidden>
+
+<main>
+  <div id="status" class="status"></div>
+
+  <!-- ───────────── 1. DATI CLIENTE ───────────── -->
+  <section id="view-client" class="view">
+    <div class="card">
+      <h2>Dati cliente</h2>
+      <div class="grid2">
+        <label>Nome e cognome<input id="name" autocomplete="off" placeholder="es. Filippo Messineo"></label>
+        <label>Obiettivo / fase<input id="goal" list="goals" autocomplete="off" placeholder="es. Ricomposizione corporea – Fase 1"></label>
+        <datalist id="goals">
+          <option value="Ricomposizione corporea – Fase 1"></option><option value="Ricomposizione corporea – Fase 2"></option>
+          <option value="Ricomposizione corporea – Fase 3"></option><option value="Dimagrimento – Fase 1"></option>
+          <option value="Dimagrimento – Fase 2"></option><option value="Performance"></option><option value="Mantenimento"></option>
+          <option value="Massa muscolare – Fase 1"></option>
+        </datalist>
+        <label>Peso corporeo (kg, facoltativo)<input id="weight" type="number" inputmode="decimal" min="30" max="250" step="0.1"></label>
+        <label>Sesso (per il ferro LARN)<select id="sex"><option value="">—</option><option value="M">Uomo</option><option value="F">Donna</option></select></label>
+      </div>
+
+      <label class="check big"><input type="checkbox" id="onoff"> Giorni ON / OFF (target diversi nei giorni di allenamento)</label>
+      <div id="targets"></div>
+
+      <div class="grid2">
+        <label>Numero di pasti
+          <select id="nMeals"><option>3</option><option>4</option><option selected>5</option><option>6</option></select>
+        </label>
+        <div class="distbox"><span class="muted">Distribuzione kcal</span><div id="distView"></div></div>
+      </div>
+
+      <h3>Allergie e intolleranze</h3>
+      <p class="muted">Per ogni voce spuntata vengono esclusi gli alimenti con valore 1 (presente) e 2 (possibili tracce).</p>
+      <div id="flags" class="chips"></div>
+
+      <h3>Preferenze</h3>
+      <div class="chips">
+        <label class="chip"><input type="checkbox" id="p_vegetarian"> Vegetariano</label>
+        <label class="chip"><input type="checkbox" id="p_vegan"> Vegano</label>
+        <label class="chip"><input type="checkbox" id="p_noRed"> No carne rossa</label>
+        <label class="chip"><input type="checkbox" id="p_noPork"> No maiale</label>
+        <label class="chip"><input type="checkbox" id="p_noRawSmoked"> No pesce crudo/affumicato</label>
+      </div>
+
+      <h3>Escludi alimenti specifici</h3>
+      <div class="search">
+        <input id="exSearch" placeholder="Cerca nel database (es. tonno, seitan…)" autocomplete="off">
+        <div id="exSug" class="sug"></div>
+      </div>
+      <div id="exList" class="chips"></div>
+
+      <h3>Tipo di piano</h3>
+      <div class="radios">
+        <label class="radio"><input type="radio" name="planType" value="daily"> Piano giorno per giorno</label>
+        <label class="radio"><input type="radio" name="planType" value="multi" checked> Piano a scelte multiple</label>
+      </div>
+      <div id="dailyOpts" hidden>
+        <div id="onDaysBox">
+          <span class="muted">Giorni ON (allenamento)</span>
+          <div id="onDays" class="days"></div>
+        </div>
+        <div class="grid2">
+          <label>Pasto libero
+            <select id="freeDay"><option value="">Nessun pasto libero</option></select>
+          </label>
+          <label>Pasto
+            <select id="freeMeal"><option value="cen">Cena</option><option value="pra">Pranzo</option></select>
+          </label>
+          <label>Allenamento (per spostare i carboidrati)
+            <select id="training"><option value="sera">Pomeriggio / sera → più carboidrati a cena</option><option value="mattina">Mattina → più carboidrati a pranzo</option><option value="nessuno">Non spostare</option></select>
+          </label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="btnSave" class="sec">Salva profilo</button>
+        <button id="btnGenerate" class="pri">Genera anteprima →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────── 2. REVISIONE COACH ───────────── -->
+  <section id="view-review" class="view" hidden>
+    <div class="card sticky">
+      <div class="rowx">
+        <button id="btnBack" class="sec">← Modifica dati</button>
+        <div class="grow"></div>
+        <button id="btnRegenAll" class="sec">↻ Rigenera</button>
+        <button id="btnPreview" class="sec">Anteprima documento</button>
+        <button id="btnPdf" class="sec">Scarica PDF</button>
+        <button id="btnDocx" class="pri">Genera piano (.docx)</button>
+      </div>
+    </div>
+    <div id="review"></div>
+  </section>
+
+  <!-- ───────────── ARCHIVIO ───────────── -->
+  <section id="view-archive" class="view" hidden>
+    <div class="card">
+      <h2>Archivio clienti</h2>
+      <p class="muted">I profili restano solo in questo browser. Esporta un backup ogni tanto.</p>
+      <div class="actions left">
+        <button id="btnExport" class="sec">Esporta profili (JSON)</button>
+        <button id="btnImport" class="sec">Importa profili (JSON)</button>
+      </div>
+      <div id="archive"></div>
+    </div>
+  </section>
+
+  <!-- ───────────── IMPOSTAZIONI ───────────── -->
+  <section id="view-settings" class="view" hidden>
+    <div class="card">
+      <h2>Impostazioni</h2>
+      <h3>Distribuzione delle kcal tra i pasti (%)</h3>
+      <p class="muted">Lo Spuntino 1 con la sola frutta resta fisso (1 porzione ≈ 105 kcal): la sua percentuale serve solo come riferimento.</p>
+      <div id="distEdit"></div>
+      <h3>Opzioni e testi</h3>
+      <div class="grid2">
+        <label>Opzioni colazione (8–12)<input id="s_nCol" type="number" min="8" max="12"></label>
+        <label>Opzioni spuntino (8–12)<input id="s_nSnack" type="number" min="8" max="12"></label>
+        <label>Acqua minima (litri/giorno)<input id="s_water" type="number" min="1" max="5" step="0.1"></label>
+      </div>
+      <label>Testo pasti liberi (piano a scelte multiple)<textarea id="s_freeText" rows="2"></textarea></label>
+      <h3>Modello e database</h3>
+      <p id="dbInfo" class="muted"></p>
+      <div class="actions left">
+        <button id="btnDb2" class="sec">Aggiorna database (Excel)</button>
+        <button id="btnDbReset" class="sec">Torna al database incluso</button>
+        <button id="btnTpl" class="sec">Carica modello Word</button>
+      </div>
+      <div class="actions">
+        <button id="btnSetReset" class="sec">Ripristina valori predefiniti</button>
+        <button id="btnSetSave" class="pri">Salva impostazioni</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="modal" class="modal" hidden><div class="modal-in"><button class="x" id="modalX">✕</button><div id="modalBody"></div></div></div>
+<script src="app.js"></script>
+</body>
+</html>
